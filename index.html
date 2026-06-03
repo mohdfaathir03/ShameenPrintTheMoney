@@ -564,7 +564,7 @@ function buildSection(ac){
           <div class="pt-field"><label>Monthly Profit Target</label><input type="number" id="ptMonthly-${ac}" value="4000" min="0" step="100" oninput="ptCalc('${ac}')"></div>
         </div>
         <div class="pt-input-row">
-          <div class="pt-field"><label>Trading Days / Month</label><input type="number" id="ptDays-${ac}" value="20" min="1" max="31" oninput="ptRebuild('${ac}');ptCalc('${ac}')"></div>
+          <div class="pt-field"><label>Trading Days / Month</label><input type="number" id="ptDays-${ac}" value="20" min="1" max="31" oninput="ptCalc('${ac}')"></div>
           <div class="pt-field"><label>Currency</label>
             <select id="ptCurrency-${ac}" onchange="ptCalc('${ac}')">
               <option value="RM">RM (Ringgit)</option>
@@ -785,47 +785,66 @@ if(SCRIPT_URL){
 ACCOUNTS.forEach(ac=>document.getElementById('btn-'+ac).textContent=(ac==='hr'?'⚡ ':'🔵 ')+acctNames[ac]);
 
 // ─── PROFIT TRACKER (per account) ────────────────────────────────────────────
-var ptProfits={hr:{},mr:{}};
+var ptData={
+  hr:{profits:{},daily:200,monthly:4000,days:20,currency:'RM'},
+  mr:{profits:{},daily:200,monthly:4000,days:20,currency:'RM'}
+};
 var ptToday=new Date().getDate();
-function ptCur(ac){return document.getElementById('ptCurrency-'+ac).value;}
-function ptFmt(ac,n){return ptCur(ac)+' '+Number(n).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});}
+
+function ptFmt(ac,n){
+  var cur=ptData[ac].currency;
+  return cur+' '+Number(n).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
 function ptRebuild(ac){
-  var days=parseInt(document.getElementById('ptDays-'+ac).value)||20;
   var wrap=document.getElementById('ptDayInputs-'+ac);
   if(!wrap)return;
+  var days=ptData[ac].days;
   wrap.innerHTML='';
   for(var i=1;i<=days;i++){
     var d=document.createElement('div');
     d.className='pt-day-wrap';
-    var val=ptProfits[ac][i]!==undefined?ptProfits[ac][i]:'';
+    var val=ptData[ac].profits[i]!==undefined?ptData[ac].profits[i]:'';
     d.innerHTML='<label>D'+i+'</label><input type="number" min="0" step="1" placeholder="0" data-ptday="'+i+'" data-ptacct="'+ac+'" value="'+val+'" oninput="ptOnInput(this)">';
     wrap.appendChild(d);
   }
-  ptColorInputs(ac);
 }
-function ptColorInputs(ac){
-  document.querySelectorAll('[data-ptacct="'+ac+'"]').forEach(function(el){
-    el.classList.toggle('has-val',el.value!=='');
-  });
-}
+
 function ptOnInput(el){
   var ac=el.getAttribute('data-ptacct');
   var day=parseInt(el.getAttribute('data-ptday'));
   var val=parseFloat(el.value);
-  if(isNaN(val)||val<0){delete ptProfits[ac][day];}else{ptProfits[ac][day]=val;}
-  ptColorInputs(ac);
+  if(isNaN(val)||val<0){delete ptData[ac].profits[day];}
+  else{ptData[ac].profits[day]=val;}
+  el.classList.toggle('has-val',el.value!=='');
   ptCalc(ac);
 }
+
+function ptSyncSettings(ac){
+  var dEl=document.getElementById('ptDaily-'+ac);
+  var mEl=document.getElementById('ptMonthly-'+ac);
+  var dyEl=document.getElementById('ptDays-'+ac);
+  var cEl=document.getElementById('ptCurrency-'+ac);
+  if(dEl) ptData[ac].daily=parseFloat(dEl.value)||0;
+  if(mEl) ptData[ac].monthly=parseFloat(mEl.value)||0;
+  if(dyEl){
+    var newDays=parseInt(dyEl.value)||20;
+    if(newDays!==ptData[ac].days){ptData[ac].days=newDays;ptRebuild(ac);}
+  }
+  if(cEl) ptData[ac].currency=cEl.value;
+}
+
 function ptCalc(ac){
-  var dailyT=parseFloat(document.getElementById('ptDaily-'+ac).value)||0;
-  var monthlyT=parseFloat(document.getElementById('ptMonthly-'+ac).value)||0;
-  var days=parseInt(document.getElementById('ptDays-'+ac).value)||20;
+  ptSyncSettings(ac);
+  var dailyT=ptData[ac].daily;
+  var monthlyT=ptData[ac].monthly;
+  var days=ptData[ac].days;
   var tbody=document.getElementById('ptTableBody-'+ac);
   if(!tbody)return;
   tbody.innerHTML='';
   var cumulative=0,daysTraded=0,dailySum=0;
   for(var i=1;i<=days;i++){
-    var actual=ptProfits[ac][i]!==undefined?ptProfits[ac][i]:null;
+    var actual=ptData[ac].profits[i]!==undefined?ptData[ac].profits[i]:null;
     if(actual!==null){cumulative+=actual;daysTraded++;dailySum+=actual;}
     var status=actual!==null?(actual>=dailyT?'hit':'miss'):'pending';
     var tr=document.createElement('tr');
@@ -840,19 +859,27 @@ function ptCalc(ac){
   var avgDaily=daysTraded>0?dailySum/daysTraded:0;
   var monPct=monthlyT>0?Math.min(100,Math.round((cumulative/monthlyT)*100)):0;
   var dayPct=dailyT>0?Math.min(100,Math.round((avgDaily/dailyT)*100)):0;
-  document.getElementById('ptAccum-'+ac).textContent=ptFmt(ac,cumulative);
-  document.getElementById('ptAccum-'+ac).className='mv '+(cumulative>0?'green':'');
-  document.getElementById('ptRemain-'+ac).textContent=ptFmt(ac,remaining);
-  document.getElementById('ptRemain-'+ac).className='mv '+(remaining===0?'green':'red');
-  document.getElementById('ptDayCount-'+ac).textContent=daysTraded+' / '+days;
-  document.getElementById('ptProgM-'+ac).style.width=monPct+'%';
-  document.getElementById('ptProgMPct-'+ac).textContent=monPct+'%';
-  document.getElementById('ptProgD-'+ac).style.width=dayPct+'%';
-  document.getElementById('ptProgDPct-'+ac).textContent=dayPct+'%';
+  var accEl=document.getElementById('ptAccum-'+ac);
+  var remEl=document.getElementById('ptRemain-'+ac);
+  var dcEl=document.getElementById('ptDayCount-'+ac);
+  var pmEl=document.getElementById('ptProgM-'+ac);
+  var pmPEl=document.getElementById('ptProgMPct-'+ac);
+  var pdEl=document.getElementById('ptProgD-'+ac);
+  var pdPEl=document.getElementById('ptProgDPct-'+ac);
+  if(accEl){accEl.textContent=ptFmt(ac,cumulative);accEl.className='mv '+(cumulative>0?'green':'');}
+  if(remEl){remEl.textContent=ptFmt(ac,remaining);remEl.className='mv '+(remaining===0?'green':'red');}
+  if(dcEl)dcEl.textContent=daysTraded+' / '+days;
+  if(pmEl)pmEl.style.width=monPct+'%';
+  if(pmPEl)pmPEl.textContent=monPct+'%';
+  if(pdEl)pdEl.style.width=dayPct+'%';
+  if(pdPEl)pdPEl.textContent=dayPct+'%';
 }
+
 function ptClearAll(ac){
-  ptProfits[ac]={};
-  document.querySelectorAll('[data-ptacct="'+ac+'"]').forEach(function(el){el.value='';el.classList.remove('has-val');});
+  ptData[ac].profits={};
+  document.querySelectorAll('[data-ptacct="'+ac+'"]').forEach(function(el){
+    el.value='';el.classList.remove('has-val');
+  });
   ptCalc(ac);
 }
 </script>
